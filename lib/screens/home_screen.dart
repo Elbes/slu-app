@@ -79,6 +79,7 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    print('Construindo HomeScreen'); // Log para depuração
     return Scaffold(
       appBar: CustomAppBar(
         showLogoutButton: true,

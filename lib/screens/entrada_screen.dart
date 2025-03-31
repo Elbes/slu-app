@@ -185,6 +185,14 @@ class _EntradaScreenState extends State<EntradaScreen> {
       return;
     }
 
+    // Validar se a foto foi fornecida
+    if (_foto == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('É necessário tirar uma foto para registrar a entrada.')),
+      );
+      return;
+    }
+
     final now = DateTime.now().toIso8601String();
     final idEntrada = await db.insert('entradas_offline', {
       'placa_veiculo': _semPlaca ? null : _placaVeiculo,
@@ -206,16 +214,15 @@ class _EntradaScreenState extends State<EntradaScreen> {
       });
     }
 
-    if (_foto != null) {
-      final fileName = path.basename(_foto!.path);
-      await db.insert('fotos_entrada_offline', {
-        'nome_foto': fileName,
-        'file_path': _foto!.path,
-        'id_entrada': idEntrada,
-        'dhs_cadastro': now,
-        'sincronizado': 0,
-      });
-    }
+    // Como a foto é obrigatória, não precisamos do if (_foto != null)
+    final fileName = path.basename(_foto!.path);
+    await db.insert('fotos_entrada_offline', {
+      'nome_foto': fileName,
+      'file_path': _foto!.path,
+      'id_entrada': idEntrada,
+      'dhs_cadastro': now,
+      'sincronizado': 0,
+    });
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Entrada salva offline!')),

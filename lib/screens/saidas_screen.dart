@@ -30,7 +30,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
   int? _idUsuario;
   String? _unidadeUsuario;
   bool _isLoading = true;
-  bool _isSaving = false; // Nova variável para controlar o estado de salvamento
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -173,7 +173,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
     }
 
     setState(() {
-      _isSaving = true; // Ativar o estado de salvamento
+      _isSaving = true;
     });
 
     try {
@@ -194,7 +194,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
         'sincronizado': 0,
       };
 
-      print('Salvando saída com os dados: $dadosSaida'); // Log para depuração
+      print('Salvando saída com os dados: $dadosSaida');
 
       final result = await db.insert('saidas_offline', dadosSaida);
 
@@ -207,14 +207,14 @@ class _SaidasScreenState extends State<SaidasScreen> {
         _fotoInicial = null;
       });
 
-      // Sincronizar dados em background
-      SyncHelper.sincronizarDados().timeout(const Duration(seconds: 30), onTimeout: () {
+      // Sincronizar apenas saídas pendentes em background
+      SyncHelper.sincronizarSaidasPendentes().timeout(const Duration(seconds: 30), onTimeout: () {
         print('Sincronização atingiu o timeout de 30 segundos. Continuando em background...');
         return;
       }).then((_) {
-        print('Sincronização concluída após registrar saída inicial.');
+        print('Sincronização de saídas pendentes concluída após registrar saída inicial.');
       }).catchError((e) {
-        print('Erro ao sincronizar após registrar saída inicial: $e');
+        print('Erro ao sincronizar saídas pendentes após registrar saída inicial: $e');
       });
 
       // Redirecionar para a tela intermediária
@@ -238,7 +238,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
     } finally {
       if (mounted) {
         setState(() {
-          _isSaving = false; // Desativar o estado de salvamento
+          _isSaving = false;
         });
       }
     }
@@ -255,7 +255,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
           appBar: CustomAppBar(
             showLogoutButton: true,
             onBackPressed: _isSaving
-                ? null // Desabilitar o botão de voltar durante o salvamento
+                ? null
                 : () {
                     Navigator.pushReplacement(
                       context,
@@ -312,7 +312,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
                                     );
                                   }).toList(),
                                   onChanged: _isSaving
-                                      ? null // Desabilitar o dropdown durante o salvamento
+                                      ? null
                                       : (String? newValue) {
                                           setState(() => _idEmpresaSaida = newValue);
                                         },
@@ -344,7 +344,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
                             child: SizedBox(
                               width: MediaQuery.of(context).size.width * 0.5,
                               child: ElevatedButton(
-                                onPressed: _isSaving ? null : _tirarFoto, // Desabilitar o botão durante o salvamento
+                                onPressed: _isSaving ? null : _tirarFoto,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.grey.shade700,
                                   shape: RoundedRectangleBorder(
@@ -385,7 +385,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   ElevatedButton(
-                                    onPressed: _isSaving ? null : _removerFoto, // Desabilitar o botão durante o salvamento
+                                    onPressed: _isSaving ? null : _removerFoto,
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.red.shade600,
                                       shape: RoundedRectangleBorder(
@@ -412,7 +412,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: _isSaving ? null : _salvarSaidaOffline, // Desabilitar o botão durante o salvamento
+                              onPressed: _isSaving ? null : _salvarSaidaOffline,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF1E3A8A),
                                 shape: RoundedRectangleBorder(
@@ -436,7 +436,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
                   ),
                 ),
         ),
-        if (_isSaving) // Exibir o overlay de loading durante o salvamento
+        if (_isSaving)
           Container(
             color: Colors.black.withOpacity(0.5),
             child: const Center(

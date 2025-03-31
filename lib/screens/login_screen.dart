@@ -34,12 +34,15 @@ class _LoginScreenState extends State<LoginScreen> {
       // Carregar empresas do banco local antes de tentar sincronizar
       await _carregarEmpresasLocais();
 
-      // Sincronizar todos os dados apenas na primeira inicialização
+      // Sincronizar todos os dados apenas na primeira inicialização ou se a tabela de empresas estiver vazia
       final prefs = await SharedPreferences.getInstance();
       final lastSync = prefs.getString('last_full_sync') ?? '';
+      final db = await DatabaseHelper.instance.database;
+      final empresasAtuais = await db.query('empresas_saida_offline');
+      print('Empresas atualmente no banco local antes da sincronização: ${empresasAtuais.length}');
 
-      if (lastSync.isEmpty) {
-        print('Realizando sincronização completa pela primeira vez...');
+      if (lastSync.isEmpty || empresasAtuais.isEmpty) {
+        print('Realizando sincronização completa... (lastSync: $lastSync, empresas no banco: ${empresasAtuais.length})');
         await SyncHelper.sincronizarDados();
         final now = DateTime.now().toIso8601String();
         await prefs.setString('last_full_sync', now);
@@ -50,9 +53,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Recarregar empresas após a sincronização para garantir que temos os dados mais recentes
       await _carregarEmpresasLocais();
+
+      // Verificar se as empresas foram carregadas com sucesso
+      if (_empresasSaidas.isEmpty) {
+        setState(() {
+          _errorMessage = 'Nenhuma empresa de saída disponível. Verifique sua conexão e tente novamente.';
+        });
+      }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Falha ao sincronizar dados iniciais. Verifique sua conexão e tente novamente.';
+        _errorMessage = 'Falha ao sincronizar dados iniciais: $e. Verifique sua conexão e tente novamente.';
       });
     } finally {
       setState(() {

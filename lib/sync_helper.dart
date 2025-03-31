@@ -12,7 +12,7 @@ class SyncHelper {
   static const String baseUrl = 'http://localhost:80'; // Ajuste para a porta correta do servidor Laravel
   static bool _isSynchronizing = false; // Flag para evitar sincronizações simultâneas
 
-  static Future<void> sincronizarDados() async {
+  static Future<void> sincronizarDados({bool forceFullSync = false}) async {
     if (_isSynchronizing) {
       print('Sincronização já em andamento. Aguardando conclusão...');
       return;
@@ -23,31 +23,40 @@ class SyncHelper {
       var connectivityResult = await (Connectivity().checkConnectivity());
       if (connectivityResult == ConnectivityResult.none) {
         print('Sem conexão com a internet. Sincronização adiada.');
-        return;
+        throw Exception('Sem conexão com a internet.');
       }
 
       final db = await DatabaseHelper.instance.database;
       final prefs = await SharedPreferences.getInstance();
 
-      // Sincronizar RAs
-      await _sincronizarRA();
+      // Verificar se é o primeiro acesso ou se foi solicitado um sincronismo completo
+      final lastFullSync = prefs.getString('last_full_sync') ?? '';
+      if (forceFullSync || lastFullSync.isEmpty) {
+        print('Realizando sincronização completa... (forceFullSync: $forceFullSync, lastFullSync: $lastFullSync)');
 
-      // Sincronizar Tipos de Resíduos
-      await _sincronizarTiposResiduo();
+        // Sincronizar RAs
+        await _sincronizarRA();
 
-      // Sincronizar EmpresasSaidas
-      final lastEmpresasSync = prefs.getString('last_empresas_saidas_sync') ?? '';
-      if (lastEmpresasSync.isEmpty) {
-        print('Sincronizando EmpresasSaidas pela primeira vez...');
+        // Sincronizar Tipos de Resíduos
+        await _sincronizarTiposResiduo();
+
+        // Sincronizar EmpresasSaidas
+        print('Sincronizando EmpresasSaidas...');
         try {
           final response = await http.get(
-            Uri.parse('$baseUrl/api/empresas-saidas'),
+            Uri.parse('$baseUrl/api/empresas-saida'),
             headers: {'Content-Type': 'application/json'},
-          );
+          ).timeout(const Duration(seconds: 10));
 
+          print('Resposta da API /empresas-saida: Status ${response.statusCode}');
           if (response.statusCode == 200) {
             final List<dynamic> empresas = jsonDecode(response.body);
             print('Dados recebidos do servidor: $empresas');
+
+            if (empresas.isEmpty) {
+              print('Aviso: Nenhuma empresa retornada pela API. Verifique o servidor.');
+              throw Exception('Nenhuma empresa retornada pela API.');
+            }
 
             await db.delete('empresas_saida_offline');
             for (var empresa in empresas) {
@@ -61,76 +70,159 @@ class SyncHelper {
               });
             }
 
-            final now = DateTime.now().toIso8601String();
-            await prefs.setString('last_empresas_saidas_sync', now);
-            print('EmpresasSaidas sincronizadas com sucesso em $now!');
+            print('EmpresasSaidas sincronizadas com sucesso! Total de empresas: ${empresas.length}');
           } else {
             print('Erro ao sincronizar EmpresasSaidas: ${response.statusCode} - ${response.body}');
+            throw Exception('Erro ao sincronizar EmpresasSaidas: ${response.statusCode}');
           }
         } catch (e) {
           print('Erro ao sincronizar EmpresasSaidas: $e');
+          throw e; // Propagar o erro para o chamador
         }
+
+        // Sincronizar Usuários (apenas id_perfil = 2)
+        try {
+          final response = await http.get(
+            Uri.parse('$baseUrl/api/users'),
+            headers: {'Content-Type': 'application/json'},
+          ).timeout(const Duration(seconds: 10));
+          if (response.statusCode == 200) {
+            final List<dynamic> users = jsonDecode(response.body);
+            final filteredUsers = users.where((user) => user['id_perfil'] == 2).toList();
+            await db.delete('users', where: 'id_usuario != ?', whereArgs: [1]);
+            for (var user in filteredUsers) {
+              print('Sincronizando usuário ${user['id_usuario']}: num_cpf = ${user['num_cpf']}');
+              await db.insert('users', {
+                'id_usuario': user['id_usuario'],
+                'nom_usuario': user['nom_usuario'],
+                'num_cpf': user['num_cpf'] ?? '',
+                'dat_nascimento': user['dat_nascimento'],
+                'id_unidade': user['id_unidade'],
+                'id_perfil': user['id_perfil'],
+                'dsc_email': user['dsc_email'],
+                'pws_senha': user['pws_senha'],
+                'dhs_cadastro': user['dhs_cadastro'],
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+            }
+            print('Usuários sincronizados com sucesso. Total de usuários: ${filteredUsers.length}');
+          } else {
+            print('Erro ao sincronizar usuários: ${response.statusCode} - ${response.body}');
+            throw Exception('Erro ao sincronizar usuários: ${response.statusCode}');
+          }
+        } catch (e) {
+          print('Erro ao sincronizar usuários: $e');
+          throw e;
+        }
+
+        // Sincronizar Unidades
+        try {
+          final response = await http.get(
+            Uri.parse('$baseUrl/api/unidades'),
+            headers: {'Content-Type': 'application/json'},
+          ).timeout(const Duration(seconds: 10));
+          if (response.statusCode == 200) {
+            final List<dynamic> unidades = jsonDecode(response.body);
+            await db.delete('unidades');
+            for (var unidade in unidades) {
+              await db.insert('unidades', {
+                'id_unidade': unidade['id_unidade'],
+                'nome': unidade['nome'],
+                'id_ra': unidade['id_ra'],
+                'endereco': unidade['endereco'],
+                'dhs_cadastro': unidade['dhs_cadastro'],
+                'dhs_atualizacao': unidade['dhs_atualizacao'],
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+            }
+            print('Unidades sincronizadas com sucesso. Total de unidades: ${unidades.length}');
+          } else {
+            print('Erro ao sincronizar unidades: ${response.statusCode} - ${response.body}');
+            throw Exception('Erro ao sincronizar unidades: ${response.statusCode}');
+          }
+        } catch (e) {
+          print('Erro ao sincronizar unidades: $e');
+          throw e;
+        }
+
+        // Atualizar o timestamp de sincronização completa
+        final now = DateTime.now().toIso8601String();
+        await prefs.setString('last_full_sync', now);
+        print('Sincronização completa realizada em $now.');
       } else {
-        print('EmpresasSaidas já sincronizadas em $lastEmpresasSync. Pulando sincronização.');
+        print('Sincronização completa já realizada em $lastFullSync. Pulando sincronização de dados estáticos.');
       }
 
-      // Sincronizar Usuários (apenas id_perfil = 2)
-      try {
-        final response = await http.get(
-          Uri.parse('$baseUrl/api/users'),
-          headers: {'Content-Type': 'application/json'},
-        );
-        if (response.statusCode == 200) {
-          final List<dynamic> users = jsonDecode(response.body);
-          final filteredUsers = users.where((user) => user['id_perfil'] == 2).toList();
-          await db.delete('users', where: 'id_usuario != ?', whereArgs: [1]);
-          for (var user in filteredUsers) {
-            print('Sincronizando usuário ${user['id_usuario']}: num_cpf = ${user['num_cpf']}');
-            await db.insert('users', {
-              'id_usuario': user['id_usuario'],
-              'nom_usuario': user['nom_usuario'],
-              'num_cpf': user['num_cpf'] ?? '',
-              'dat_nascimento': user['dat_nascimento'],
-              'id_unidade': user['id_unidade'],
-              'id_perfil': user['id_perfil'],
-              'dsc_email': user['dsc_email'],
-              'pws_senha': user['pws_senha'],
-              'dhs_cadastro': user['dhs_cadastro'],
-            }, conflictAlgorithm: ConflictAlgorithm.replace);
-          }
-          print('Usuários sincronizados com sucesso.');
-        } else {
-          print('Erro ao sincronizar usuários: ${response.statusCode} - ${response.body}');
-        }
-      } catch (e) {
-        print('Erro ao sincronizar usuários: $e');
+      // Sincronizar dados pendentes (entradas, resíduos, fotos, saídas)
+      await sincronizarSaidasPendentes();
+    } finally {
+      _isSynchronizing = false;
+    }
+  }
+
+  static Future<void> sincronizarSaidasPendentes() async {
+    if (_isSynchronizing) {
+      print('Sincronização já em andamento. Aguardando conclusão...');
+      return;
+    }
+
+    _isSynchronizing = true;
+    try {
+      var connectivityResult = await (Connectivity().checkConnectivity());
+      if (connectivityResult == ConnectivityResult.none) {
+        print('Sem conexão com a internet. Sincronização de saídas adiada.');
+        return;
       }
 
-      // Sincronizar Unidades
-      try {
-        final response = await http.get(
-          Uri.parse('$baseUrl/api/unidades'),
+      final db = await DatabaseHelper.instance.database;
+
+      // Sincronizar Saídas Pendentes
+      final saidasPendentes = await db.query(
+        'saidas_offline',
+        where: 'sincronizado = ?',
+        whereArgs: [0],
+      );
+      print('Saídas pendentes para sincronizar: ${saidasPendentes.length}');
+      if (saidasPendentes.isEmpty) {
+        print('Nenhuma saída pendente para sincronizar. Verifique a tabela saidas_offline.');
+      }
+
+      for (var saida in saidasPendentes) {
+        final idSaidaLocal = saida['id_saida'] as int;
+        print('Sincronizando saída $idSaidaLocal');
+        print('Dados da saída: $saida');
+        final requestBody = {
+          'id_empresa_saida': saida['id_empresa_saida'],
+          'id_unidade': saida['id_unidade'],
+          'sit_saida': saida['sit_saida'],
+          'sit_limpeza': saida['sit_limpeza'],
+          'id_usuario': saida['id_usuario'],
+          'dhs_cadastro': saida['dhs_cadastro'],
+        };
+        print('Enviando requisição para o servidor: ${jsonEncode(requestBody)}');
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/saidas/sincronizar'),
           headers: {'Content-Type': 'application/json'},
-        );
-        if (response.statusCode == 200) {
-          final List<dynamic> unidades = jsonDecode(response.body);
-          await db.delete('unidades');
-          for (var unidade in unidades) {
-            await db.insert('unidades', {
-              'id_unidade': unidade['id_unidade'],
-              'nome': unidade['nome'],
-              'id_ra': unidade['id_ra'],
-              'endereco': unidade['endereco'],
-              'dhs_cadastro': unidade['dhs_cadastro'],
-              'dhs_atualizacao': unidade['dhs_atualizacao'],
-            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          body: jsonEncode(requestBody),
+        ).timeout(const Duration(seconds: 10));
+
+        print('Status Code (Saída): ${response.statusCode}');
+        print('Response (Saída): ${response.body}');
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final responseData = jsonDecode(response.body);
+          final idSaidaServidor = responseData['id_saida'] as int?;
+          if (idSaidaServidor != null) {
+            await db.update(
+              'saidas_offline',
+              {'sincronizado': 1, 'id_saida_servidor': idSaidaServidor},
+              where: 'id_saida = ?',
+              whereArgs: [idSaidaLocal],
+            );
+            print('Saída $idSaidaLocal sincronizada com ID servidor: $idSaidaServidor');
+          } else {
+            print('Erro: API não retornou id_saida na resposta: ${response.body}');
           }
-          print('Unidades sincronizadas com sucesso.');
         } else {
-          print('Erro ao sincronizar unidades: ${response.statusCode} - ${response.body}');
+          print('Erro ao sincronizar saída $idSaidaLocal: ${response.statusCode} - ${response.body}');
         }
-      } catch (e) {
-        print('Erro ao sincronizar unidades: $e');
       }
 
       // Sincronizar Entradas
@@ -162,7 +254,7 @@ class SyncHelper {
           Uri.parse('$baseUrl/api/entradas/sincronizar'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(requestBody),
-        );
+        ).timeout(const Duration(seconds: 10));
 
         print('Status Code (Entrada): ${response.statusCode}');
         print('Response (Entrada): ${response.body}');
@@ -215,7 +307,7 @@ class SyncHelper {
               'dhs_cadastro': residuo['dhs_cadastro'],
             }]
           }),
-        );
+        ).timeout(const Duration(seconds: 10));
 
         print('Status Code (Resíduo): ${response.statusCode}');
         print('Response (Resíduo): ${response.body}');
@@ -369,7 +461,7 @@ class SyncHelper {
 
   static Future<void> _sincronizarRA() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/api/regioes-administrativas'));
+      final response = await http.get(Uri.parse('$baseUrl/api/regioes-administrativas')).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final db = await DatabaseHelper.instance.database;
         final novasRegioes = List<Map<String, dynamic>>.from(jsonDecode(response.body));
@@ -382,18 +474,20 @@ class SyncHelper {
             'dhs_cadastro': regiao['dhs_cadastro'],
           });
         }
-        print('RAs sincronizadas com sucesso.');
+        print('RAs sincronizadas com sucesso. Total de RAs: ${novasRegioes.length}');
       } else {
         print('Erro ao sincronizar RAs: ${response.statusCode} - ${response.body}');
+        throw Exception('Erro ao sincronizar RAs: ${response.statusCode}');
       }
     } catch (e) {
       print('Erro ao sincronizar RAs: $e');
+      throw e;
     }
   }
 
   static Future<void> _sincronizarTiposResiduo() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/api/tipos-residuo'));
+      final response = await http.get(Uri.parse('$baseUrl/api/tipos-residuo')).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final db = await DatabaseHelper.instance.database;
         final novosTipos = List<Map<String, dynamic>>.from(jsonDecode(response.body));
@@ -406,12 +500,14 @@ class SyncHelper {
             'dhs_cadastro': tipo['dhs_cadastro'],
           });
         }
-        print('Tipos de resíduos sincronizados com sucesso.');
+        print('Tipos de resíduos sincronizados com sucesso. Total de tipos: ${novosTipos.length}');
       } else {
         print('Erro ao sincronizar tipos de resíduos: ${response.statusCode} - ${response.body}');
+        throw Exception('Erro ao sincronizar tipos de resíduos: ${response.statusCode}');
       }
     } catch (e) {
       print('Erro ao sincronizar tipos de resíduos: $e');
+      throw e;
     }
   }
 }
