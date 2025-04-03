@@ -142,7 +142,9 @@ class DatabaseHelper {
         sit_limpeza TEXT,
         id_usuario INTEGER,
         dhs_cadastro TEXT,
-        sincronizado INTEGER
+        dhs_atualizacao TEXT,
+        sincronizado INTEGER,
+        id_saida_servidor INTEGER
       )
     ''');
 

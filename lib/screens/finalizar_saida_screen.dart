@@ -159,59 +159,71 @@ class _FinalizarSaidaScreenState extends State<FinalizarSaidaScreen> {
       _isLoading = true;
     });
 
-    final updatedRows = await db.update(
-      'saidas_offline',
-      {
-        'sit_saida': 2,
-        'foto_final': _fotoFinal!.path,
-        'sit_limpeza': _sitLimpeza,
-        'sincronizado': 0,
-      },
-      where: 'id_saida = ?',
-      whereArgs: [widget.idSaida],
-    );
-
-    if (updatedRows > 0) {
-      print('Saída ${widget.idSaida} atualizada com sucesso: sit_saida=2, foto_final=${_fotoFinal!.path}, sit_limpeza=$_sitLimpeza');
-    } else {
-      print('Erro: Nenhuma linha atualizada para id_saida=${widget.idSaida}');
-      setState(() {
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erro ao finalizar saída. Tente novamente.')),
+    try {
+      final now = DateTime.now();
+      final updatedRows = await db.update(
+        'saidas_offline',
+        {
+          'sit_saida': 2,
+          'foto_final': _fotoFinal!.path,
+          'sit_limpeza': _sitLimpeza,
+          'dhs_atualizacao': now.toIso8601String(),
+          'sincronizado': 0,
+        },
+        where: 'id_saida = ?',
+        whereArgs: [widget.idSaida],
       );
-      return;
+
+      if (updatedRows > 0) {
+        print('Saída ${widget.idSaida} atualizada com sucesso: sit_saida=2, foto_final=${_fotoFinal!.path}, sit_limpeza=$_sitLimpeza, dhs_atualizacao=${now.toIso8601String()}');
+      } else {
+        print('Erro: Nenhuma linha atualizada para id_saida=${widget.idSaida}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erro ao finalizar saída. Tente novamente.')),
+        );
+        return;
+      }
+
+      final saidaAtualizada = await db.query(
+        'saidas_offline',
+        where: 'id_saida = ?',
+        whereArgs: [widget.idSaida],
+      );
+      print('Saída após atualização no banco local: $saidaAtualizada');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saída finalizada com sucesso!')),
+      );
+
+      // Sincronizar saídas pendentes em background
+      print('Iniciando sincronização de saídas pendentes em background após finalização...');
+      SyncHelper.sincronizarSaidasPendentes().then((_) {
+        print('Sincronização de saídas pendentes concluída após finalizar saída.');
+      }).catchError((e) {
+        print('Erro ao sincronizar saídas pendentes após finalizar saída: $e');
+        // O SyncHelper já está configurado para tentar novamente quando houver conexão
+      });
+
+      // Redirecionar para a HomeScreen imediatamente
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao finalizar saída: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
-
-    final saidaAtualizada = await db.query(
-      'saidas_offline',
-      where: 'id_saida = ?',
-      whereArgs: [widget.idSaida],
-    );
-    print('Saída após atualização: $saidaAtualizada');
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saída finalizada com sucesso!')),
-    );
-
-    await Future.delayed(const Duration(seconds: 2));
-
-    SyncHelper.sincronizarDados().timeout(const Duration(seconds: 30), onTimeout: () {
-      print('Sincronização atingiu o timeout de 30 segundos. Continuando em background...');
-      return;
-    }).then((_) {
-      print('Sincronização concluída após finalizar saída.');
-    }).catchError((e) {
-      print('Erro ao sincronizar após finalizar saída: $e');
-    });
-
-    print('Redirecionando para HomeScreen...');
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (context) => const HomeScreen()),
-      (route) => false,
-    );
   }
 
   @override

@@ -3,20 +3,24 @@ import 'screens/login_screen.dart';
 import 'screens/entrada_screen.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart'; // Importa o sqflite_common_ffi
 import 'package:sqflite/sqflite.dart'; // Importa o sqflite
-import 'dart:io'; // Adicione este import para usar a classe Platform
+import 'dart:io'; // Para usar a classe Platform
 import 'screens/home_screen.dart'; // Importa a nova tela inicial
 import 'package:shared_preferences/shared_preferences.dart';
 import 'sync_helper.dart';
 
-void main() async{
+void main() async {
   // Inicializa o sqflite_common_ffi para Windows/Linux
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     sqfliteFfiInit(); // Inicializa o FFI
     databaseFactory = databaseFactoryFfi; // Define o databaseFactory global
   }
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Inicia o monitoramento de conectividade
+  SyncHelper.startConnectivityMonitoring();
+  
   // Sincronizar dados ao iniciar o aplicativo
-  await SyncHelper.sincronizarDados();
+  await SyncHelper.sincronizarDados(forceFullSync: true);
 
   runApp(const MyApp());
 }

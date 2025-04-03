@@ -185,7 +185,7 @@ class _SaidasScreenState extends State<SaidasScreen> {
       final dadosSaida = {
         'id_empresa_saida': int.parse(_idEmpresaSaida!),
         'id_unidade': _idUnidade!,
-        'sit_saida': 1, // Iniciada
+        'sit_saida': 1,
         'foto_inicial': _fotoInicial!.path,
         'foto_final': null,
         'sit_limpeza': null,
@@ -207,11 +207,9 @@ class _SaidasScreenState extends State<SaidasScreen> {
         _fotoInicial = null;
       });
 
-      // Sincronizar apenas saídas pendentes em background
-      SyncHelper.sincronizarSaidasPendentes().timeout(const Duration(seconds: 30), onTimeout: () {
-        print('Sincronização atingiu o timeout de 30 segundos. Continuando em background...');
-        return;
-      }).then((_) {
+      // Sincronizar saídas pendentes imediatamente, se houver conexão
+      print('Iniciando sincronização de saídas pendentes após registrar saída inicial...');
+      await SyncHelper.sincronizarSaidasPendentes().then((_) {
         print('Sincronização de saídas pendentes concluída após registrar saída inicial.');
       }).catchError((e) {
         print('Erro ao sincronizar saídas pendentes após registrar saída inicial: $e');

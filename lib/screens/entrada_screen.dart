@@ -227,6 +227,8 @@ class _EntradaScreenState extends State<EntradaScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Entrada salva offline!')),
     );
+
+    // Limpar os campos após salvar
     setState(() {
       _placaVeiculo = '';
       _placaController.text = '';
@@ -237,7 +239,14 @@ class _EntradaScreenState extends State<EntradaScreen> {
       _idTipoIrregularidade = null;
     });
 
-    await SyncHelper.sincronizarDados();
+    // Sincronizar entradas imediatamente
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sincronizando entrada...')),
+    );
+    await SyncHelper.sincronizarEntradasPendentes();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sincronização concluída!')),
+    );
   }
 
   String _normalizeText(String text) {
