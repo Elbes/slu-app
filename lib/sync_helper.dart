@@ -10,7 +10,7 @@ import 'package:path/path.dart' as path;
 import 'database_helper.dart';
 
 class SyncHelper {
-  static const String baseUrl = 'http://localhost:80'; // Ajuste para a porta correta do servidor Laravel
+  static const String baseUrl = 'https://papaentulho.slu.df.gov.br'; // Ajuste para a porta correta do servidor Laravel
   static bool _isFullSyncRunning = false; // Flag para sincronização completa
   static bool _isEntrySyncRunning = false; // Flag para sincronização de entradas
   static bool _isSaidaSyncRunning = false; // Flag para sincronização de saídas
