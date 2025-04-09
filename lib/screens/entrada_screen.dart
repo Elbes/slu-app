@@ -185,6 +185,14 @@ class _EntradaScreenState extends State<EntradaScreen> {
       return;
     }
 
+    // Validar se pelo menos um resíduo foi selecionado
+    if (_tiposSelecionados.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecione pelo menos um tipo de resíduo para registrar a entrada.')),
+      );
+      return;
+    }
+
     // Validar se a foto foi fornecida
     if (_foto == null) {
       ScaffoldMessenger.of(context).showSnackBar(

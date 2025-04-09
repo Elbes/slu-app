@@ -1,3 +1,4 @@
+import 'dart:async'; // Adicionado para StreamSubscription
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -15,13 +16,14 @@ class SyncHelper {
   static bool _isSaidaSyncRunning = false; // Flag para sincronização de saídas
   static Connectivity _connectivity = Connectivity();
   static bool _isMonitoringConnectivity = false;
+  static StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   // Inicializar o monitoramento de conectividade
   static void startConnectivityMonitoring() {
     if (_isMonitoringConnectivity) return;
     _isMonitoringConnectivity = true;
 
-    _connectivity.onConnectivityChanged.listen((List<ConnectivityResult> results) async {
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen((List<ConnectivityResult> results) async {
       print('Conectividade alterada: $results');
       if (!results.contains(ConnectivityResult.none)) {
         print('Conexão restabelecida. Iniciando sincronização de entradas e saídas pendentes...');
@@ -31,6 +33,22 @@ class SyncHelper {
         print('Conexão perdida. Sincronização será adiada até a conexão ser restabelecida.');
       }
     });
+  }
+
+  // Parar o monitoramento de conectividade
+  static Future<void> stopConnectivityMonitoring() async {
+    if (_isMonitoringConnectivity) {
+      await _connectivitySubscription?.cancel();
+      _connectivitySubscription = null;
+      _isMonitoringConnectivity = false;
+      print('Monitoramento de conectividade parado.');
+    }
+
+    // Aguardar a conclusão de qualquer sincronização em andamento
+    while (_isFullSyncRunning || _isEntrySyncRunning || _isSaidaSyncRunning) {
+      print('Aguardando conclusão das sincronizações em andamento...');
+      await Future.delayed(Duration(milliseconds: 500));
+    }
   }
 
   static Future<void> sincronizarDados({bool forceFullSync = false}) async {

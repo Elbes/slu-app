@@ -118,7 +118,7 @@ class DatabaseHelper {
       )
     ''');
 
-        // Nova tabela empresas_saida_offline
+    // Nova tabela empresas_saida_offline
     await db.execute('''
       CREATE TABLE empresas_saida_offline (
         id_empresa_saida INTEGER PRIMARY KEY,
@@ -385,6 +385,120 @@ class DatabaseHelper {
     await db.insert('tipos_residuo_offline', {'id_residuo': 3, 'nome_residuo': 'VOLUMOSOS', 'dsc_residuo': null, 'dhs_cadastro': '2024-11-28 09:42:53'});
     await db.insert('tipos_residuo_offline', {'id_residuo': 4, 'nome_residuo': 'RECICLÁVEIS', 'dsc_residuo': null, 'dhs_cadastro': '2024-11-28 09:42:53'});
     await db.insert('tipos_residuo_offline', {'id_residuo': 5, 'nome_residuo': 'ÓLEO DE COZINHA', 'dsc_residuo': null, 'dhs_cadastro': '2024-11-28 09:42:53'});
+
+    // Empresas de Saída (empresas_saida_offline)
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 1,
+      'nom_empresa': 'ACOBRAZ_CRB',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 2,
+      'nom_empresa': 'COOPATIVA',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 3,
+      'nom_empresa': 'COOPERDIFE',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 4,
+      'nom_empresa': 'COOPERLIMPO',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 5,
+      'nom_empresa': 'ECOLIMPO',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 6,
+      'nom_empresa': 'FLOR DO CERRADO',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 7,
+      'nom_empresa': 'PLANALTO',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 8,
+      'nom_empresa': 'PLASFERRRO',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 9,
+      'nom_empresa': 'R3',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 10,
+      'nom_empresa': 'RECICLE A VIDA',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 11,
+      'nom_empresa': 'RENOVE',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 12,
+      'nom_empresa': 'SUMA BRASIL',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 13,
+      'nom_empresa': 'VALOR AMBIENTAL',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
+    await db.insert('empresas_saida_offline', {
+      'id_empresa_saida': 14,
+      'nom_empresa': 'SUSTENTARE SANEAMENTO',
+      'dsc_empresa': null,
+      'dhs_cadastro': '2025-01-14 15:12:22',
+      'dhs_atualizacao': null,
+      'dhs_exclusao': null,
+    });
   }
 
   Future close() async {

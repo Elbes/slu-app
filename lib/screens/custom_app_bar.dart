@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../sync_helper.dart'; // Importe o SyncHelper
 
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onBackPressed;
@@ -13,10 +14,18 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   // Função para realizar o logout
   Future<void> _logout(BuildContext context) async {
+    // Parar o monitoramento de conectividade e aguardar a conclusão de sincronizações
+    await SyncHelper.stopConnectivityMonitoring();
+
+    // Limpar as preferências
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear(); // Limpa todas as preferências, incluindo o estado de login
+
+    // Verificar se o widget ainda está montado antes de navegar
     if (!context.mounted) return;
-    Navigator.pushReplacementNamed(context, '/login'); // Redireciona para a tela de login
+
+    // Redirecionar para a tela de login
+    Navigator.pushReplacementNamed(context, '/login');
   }
 
   @override
@@ -30,7 +39,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
           : null, // Remove o leading completamente se não houver botão de voltar
       leadingWidth: onBackPressed != null ? 56 : 0, // Ajusta a largura apenas se o botão de voltar estiver presente
       title: Image.asset(
-        'assets/slu_logo.png',  // Substitua pelo caminho da sua imagem
+        'assets/slu_logo.png', // Substitua pelo caminho da sua imagem
         height: 40, // Ajuste a altura conforme necessário
       ),
       centerTitle: true,
