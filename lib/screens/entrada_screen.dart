@@ -4,14 +4,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io' show File, Platform;
 import 'package:http/http.dart' as http;
-import 'dart:convert'; // Importa jsonEncode/jsonDecode
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart' as path; // Adicionado para manipulação de caminhos
+import 'package:path/path.dart' as path;
 import '../database_helper.dart';
 import '../sync_helper.dart';
-import 'custom_app_bar.dart'; // Importa a CustomAppBar
-import 'home_screen.dart'; // Importa a HomeScreen para navegação
+import 'custom_app_bar.dart';
+import 'home_screen.dart';
 
 class EntradaScreen extends StatefulWidget {
   const EntradaScreen({Key? key}) : super(key: key);
@@ -117,33 +117,25 @@ class _EntradaScreenState extends State<EntradaScreen> {
     }
 
     if (Platform.isAndroid || Platform.isIOS) {
-      PermissionStatus status = await Permission.camera.request();
+      PermissionStatus status = await Permission.camera.status;
       if (status.isGranted) {
-        try {
-          final pickedFile = await _picker.pickImage(source: ImageSource.camera);
-          if (pickedFile != null) {
-            setState(() {
-              _foto = File(pickedFile.path);
-            });
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Nenhuma foto foi capturada.')),
-            );
-          }
-        } catch (e) {
+        _captureImage();
+      } else if (status.isDenied || status.isPermanentlyDenied) {
+        status = await Permission.camera.request();
+        if (status.isGranted) {
+          _captureImage();
+        } else if (status.isDenied) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erro ao capturar foto: $e')),
+            const SnackBar(content: Text('Permissão para câmera negada. Por favor, habilite nas configurações do aplicativo.')),
           );
+        } else if (status.isPermanentlyDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Permissão para câmera permanentemente negada. Por favor, habilite nas configurações do aplicativo.'),
+            ),
+          );
+          await openAppSettings();
         }
-      } else if (status.isDenied) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Permissão para câmera negada.')),
-        );
-      } else if (status.isPermanentlyDenied) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Permissão permanentemente negada.')),
-        );
-        await openAppSettings();
       }
     } else if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
       try {
@@ -169,11 +161,46 @@ class _EntradaScreenState extends State<EntradaScreen> {
     }
   }
 
-  // Método para remover a foto
+  Future<void> _captureImage() async {
+    try {
+      final pickedFile = await _picker.pickImage(source: ImageSource.camera);
+      if (pickedFile != null) {
+        setState(() {
+          _foto = File(pickedFile.path);
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nenhuma foto foi capturada.')),
+        );
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Erro ao capturar foto: $e\n$stackTrace');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao capturar foto: $e')),
+      );
+    }
+  }
+
   void _removerFoto() {
     setState(() {
       _foto = null;
     });
+  }
+
+  Future<bool> _sincronizarEntradas() async {
+    try {
+      await SyncHelper.sincronizarEntradasPendentes();
+      final db = await DatabaseHelper.instance.database;
+      final entradasPendentes = await db.query(
+        'entradas_offline',
+        where: 'sincronizado = ?',
+        whereArgs: [0],
+      );
+      return entradasPendentes.isEmpty; // Retorna true se todas as entradas foram sincronizadas
+    } catch (e) {
+      print('Erro ao sincronizar entradas: $e');
+      return false;
+    }
   }
 
   Future<void> _salvarEntradaOffline() async {
@@ -185,7 +212,6 @@ class _EntradaScreenState extends State<EntradaScreen> {
       return;
     }
 
-    // Validar se pelo menos um resíduo foi selecionado
     if (_tiposSelecionados.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecione pelo menos um tipo de resíduo para registrar a entrada.')),
@@ -193,7 +219,6 @@ class _EntradaScreenState extends State<EntradaScreen> {
       return;
     }
 
-    // Validar se a foto foi fornecida
     if (_foto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('É necessário tirar uma foto para registrar a entrada.')),
@@ -222,7 +247,6 @@ class _EntradaScreenState extends State<EntradaScreen> {
       });
     }
 
-    // Como a foto é obrigatória, não precisamos do if (_foto != null)
     final fileName = path.basename(_foto!.path);
     await db.insert('fotos_entrada_offline', {
       'nome_foto': fileName,
@@ -236,7 +260,6 @@ class _EntradaScreenState extends State<EntradaScreen> {
       const SnackBar(content: Text('Entrada salva offline!')),
     );
 
-    // Limpar os campos após salvar
     setState(() {
       _placaVeiculo = '';
       _placaController.text = '';
@@ -247,14 +270,22 @@ class _EntradaScreenState extends State<EntradaScreen> {
       _idTipoIrregularidade = null;
     });
 
-    // Sincronizar entradas imediatamente
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Sincronizando entrada...')),
     );
-    await SyncHelper.sincronizarEntradasPendentes();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sincronização concluída!')),
-    );
+
+    bool sincronizadoComSucesso = await _sincronizarEntradas();
+    if (sincronizadoComSucesso) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sincronização concluída com sucesso!')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Falha na sincronização. Entrada salva offline e será sincronizada quando houver conexão.'),
+        ),
+      );
+    }
   }
 
   String _normalizeText(String text) {
@@ -279,9 +310,8 @@ class _EntradaScreenState extends State<EntradaScreen> {
 
     return Scaffold(
       appBar: CustomAppBar(
-        showLogoutButton: true, // Exibe o botão de logout
+        showLogoutButton: true,
         onBackPressed: () {
-          // Navega de volta para a HomeScreen
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -511,9 +541,9 @@ class _EntradaScreenState extends State<EntradaScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                Center( // Centraliza o botão horizontalmente
+                Center(
                   child: SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.5, // 50% da largura da tela
+                    width: MediaQuery.of(context).size.width * 0.5,
                     child: ElevatedButton(
                       onPressed: _tirarFoto,
                       style: ElevatedButton.styleFrom(
@@ -523,14 +553,14 @@ class _EntradaScreenState extends State<EntradaScreen> {
                         ),
                         padding: const EdgeInsets.symmetric(
                           vertical: 12,
-                          horizontal: 16, // Aumenta o padding horizontal para evitar corte
+                          horizontal: 16,
                         ),
                       ),
                       child: Text(
                         tirarFotoTexto,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 14, // Ajusta o tamanho da fonte para caber no botão
+                          fontSize: 14,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -549,9 +579,9 @@ class _EntradaScreenState extends State<EntradaScreen> {
                           ),
                           child: Image.file(
                             _foto!,
-                            width: MediaQuery.of(context).size.width * 0.6, // 60% da largura da tela
-                            height: 300, // Altura fixa para a prévia
-                            fit: BoxFit.cover, // Ajusta a imagem para preencher o espaço
+                            width: MediaQuery.of(context).size.width * 0.6,
+                            height: 300,
+                            fit: BoxFit.cover,
                           ),
                         ),
                         const SizedBox(height: 8),

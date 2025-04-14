@@ -11,10 +11,10 @@ android {
 
     defaultConfig {
         applicationId = "com.example.entradas_pev_app"
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        minSdkVersion(23) // Definido para suportar Android 14
+        targetSdkVersion(34) // Android 14
     }
 
     compileOptions {
@@ -32,19 +32,28 @@ android {
             keyPassword = "281016"
             storeFile = file("C:\\Users\\elbes.admin\\upload-keystore.jks")
             storePassword = "281016"
+            // Removido: v1SigningEnabled e v2SigningEnabled, pois são gerenciados automaticamente pelo AGP
         }
     }
 
-    applicationVariants.all {
-        if (buildType.name == "pevs-slu") {
-            (buildType as com.android.build.api.dsl.BuildType).apply {
-                isMinifyEnabled = true
-                isShrinkResources = true
-                proguardFiles(
-                    getDefaultProguardFile("proguard-android-optimize.txt"),
-                    file("proguard-rules.pro")
-                )
-            }
+    buildTypes {
+        create("pevs-slu") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                file("proguard-rules.pro")
+            )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                file("proguard-rules.pro")
+            )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
