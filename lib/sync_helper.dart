@@ -1,4 +1,4 @@
-import 'dart:async'; // Adicionado para StreamSubscription
+import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -10,15 +10,74 @@ import 'package:path/path.dart' as path;
 import 'database_helper.dart';
 
 class SyncHelper {
-  static const String baseUrl = 'https://papaentulho.slu.df.gov.br'; // Ajuste para a porta correta do servidor Laravel
-  static bool _isFullSyncRunning = false; // Flag para sincronização completa
-  static bool _isEntrySyncRunning = false; // Flag para sincronização de entradas
-  static bool _isSaidaSyncRunning = false; // Flag para sincronização de saídas
+  static const String baseUrl = 'https://papaentulho.slu.df.gov.br';
+  static bool _isFullSyncRunning = false;
+  static bool _isEntrySyncRunning = false;
+  static bool _isSaidaSyncRunning = false;
   static Connectivity _connectivity = Connectivity();
   static bool _isMonitoringConnectivity = false;
   static StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  static String? _token;
 
-  // Inicializar o monitoramento de conectividade
+  // Inicializar o token a partir do SharedPreferences
+  static Future<void> _initializeToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    _token = prefs.getString('auth_token');
+  }
+
+  // Salvar o token no SharedPreferences
+  static Future<void> _saveToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_token', token);
+    _token = token;
+  }
+
+  // Fazer login e obter o token usando as credenciais salvas
+  static Future<bool> _obtainToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('user_email');
+    final password = prefs.getString('user_password');
+
+    if (email == null || password == null) {
+      print('Credenciais não encontradas. Não é possível obter o token.');
+      return false;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/login-api'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'dsc_email': email,
+          'pws_senha': password,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        final token = responseData['token'];
+        await _saveToken(token);
+        print('Token obtido com sucesso: $token');
+        return true;
+      } else {
+        print('Erro ao obter token: ${response.statusCode} - ${response.body}');
+        return false;
+      }
+    } catch (e) {
+      print('Exceção ao obter token: $e');
+      return false;
+    }
+  }
+
+  // Adicionar cabeçalhos padrão com o token
+  static Map<String, String> _getHeaders({bool isMultipart = false}) {
+    return {
+      if (!isMultipart) 'Content-Type': 'application/json',
+      if (_token != null) 'Authorization': 'Bearer $_token',
+      'Accept': 'application/json',
+    };
+  }
+
   static void startConnectivityMonitoring() {
     if (_isMonitoringConnectivity) return;
     _isMonitoringConnectivity = true;
@@ -35,7 +94,6 @@ class SyncHelper {
     });
   }
 
-  // Parar o monitoramento de conectividade
   static Future<void> stopConnectivityMonitoring() async {
     if (_isMonitoringConnectivity) {
       await _connectivitySubscription?.cancel();
@@ -44,7 +102,6 @@ class SyncHelper {
       print('Monitoramento de conectividade parado.');
     }
 
-    // Aguardar a conclusão de qualquer sincronização em andamento
     while (_isFullSyncRunning || _isEntrySyncRunning || _isSaidaSyncRunning) {
       print('Aguardando conclusão das sincronizações em andamento...');
       await Future.delayed(Duration(milliseconds: 500));
@@ -62,37 +119,44 @@ class SyncHelper {
       var connectivityResult = await _connectivity.checkConnectivity();
       if (connectivityResult.contains(ConnectivityResult.none)) {
         print('Sem conexão com a internet. Sincronização completa adiada.');
-        return; // Continua em modo offline
+        return;
+      }
+
+      // Tentar obter o token antes da sincronização
+      await _initializeToken();
+      if (_token == null) {
+        print('Token não encontrado. Tentando obter um novo token...');
+        final tokenObtained = await _obtainToken();
+        if (!tokenObtained) {
+          print('Falha ao obter o token. Sincronização adiada.');
+          return;
+        }
       }
 
       final db = await DatabaseHelper.instance.database;
       final prefs = await SharedPreferences.getInstance();
 
-      // Verificar se é o primeiro acesso ou se foi solicitado um sincronismo completo
       final lastFullSync = prefs.getString('last_full_sync') ?? '';
       if (forceFullSync || lastFullSync.isEmpty) {
         print('Realizando sincronização completa... (forceFullSync: $forceFullSync, lastFullSync: $lastFullSync)');
 
-        // Sincronizar RAs
         try {
           await _sincronizarRA();
         } catch (e) {
           print('Falha ao sincronizar RAs: $e. Continuando com dados locais...');
         }
 
-        // Sincronizar Tipos de Resíduos
         try {
           await _sincronizarTiposResiduo();
         } catch (e) {
           print('Falha ao sincronizar Tipos de Resíduos: $e. Continuando com dados locais...');
         }
 
-        // Sincronizar EmpresasSaidas
         print('Sincronizando EmpresasSaidas...');
         try {
           final response = await http.get(
             Uri.parse('$baseUrl/api/empresas-saida'),
-            headers: {'Content-Type': 'application/json'},
+            headers: _getHeaders(),
           ).timeout(const Duration(seconds: 30));
 
           print('Resposta da API /empresas-saida: Status ${response.statusCode}');
@@ -123,31 +187,194 @@ class SyncHelper {
           print('Falha ao sincronizar EmpresasSaidas: $e. Continuando com dados locais...');
         }
 
-        // Sincronizar Usuários (apenas id_perfil = 2)
+        print('Sincronizando usuários...');
         try {
           final response = await http.get(
             Uri.parse('$baseUrl/api/users'),
-            headers: {'Content-Type': 'application/json'},
+            headers: _getHeaders(),
           ).timeout(const Duration(seconds: 30));
           if (response.statusCode == 200) {
             final List<dynamic> users = jsonDecode(response.body);
-            final filteredUsers = users.where((user) => user['id_perfil'] == 2).toList();
-            await db.delete('users', where: 'id_usuario != ?', whereArgs: [1]);
+            final filteredUsers = users.where((user) => user['id_usuario'] != 1).toList();
+
+            // Obter todos os usuários locais (exceto o administrador)
+            final localUsers = await db.query('users', where: 'id_usuario != ?', whereArgs: [1]);
+            final localUserIds = localUsers.map((user) => user['id_usuario'] as int).toSet();
+
+            // Processar usuários do servidor (inserir ou atualizar)
             for (var user in filteredUsers) {
-              print('Sincronizando usuário ${user['id_usuario']}: num_cpf = ${user['num_cpf']}');
-              await db.insert('users', {
-                'id_usuario': user['id_usuario'],
-                'nom_usuario': user['nom_usuario'],
-                'num_cpf': user['num_cpf'] ?? '',
-                'dat_nascimento': user['dat_nascimento'],
-                'id_unidade': user['id_unidade'],
-                'id_perfil': user['id_perfil'],
-                'dsc_email': user['dsc_email'],
-                'pws_senha': user['pws_senha'],
-                'dhs_cadastro': user['dhs_cadastro'],
-              }, conflictAlgorithm: ConflictAlgorithm.replace);
+              final userId = user['id_usuario'] as int;
+              final existingUser = localUsers.firstWhere(
+                (localUser) => localUser['id_usuario'] == userId,
+                orElse: () => {},
+              );
+
+              final userData = {
+                'id_usuario': userId,
+                'nom_usuario': user['nom_usuario']?.toString() ?? '',
+                'num_cpf': user['num_cpf']?.toString() ?? '',
+                'dat_nascimento': user['dat_nascimento']?.toString(),
+                'id_unidade': user['id_unidade'] as int? ?? 1,
+                'id_perfil': user['id_perfil'] as int? ?? 2,
+                'dsc_email': user['dsc_email']?.toString() ?? '',
+                'pws_senha': user['pws_senha']?.toString() ?? '',
+                'dhs_cadastro': user['dhs_cadastro']?.toString(),
+              };
+
+              if (existingUser.isEmpty) {
+                // Usuário não existe localmente, inserir
+                await db.insert(
+                  'users',
+                  userData,
+                  conflictAlgorithm: ConflictAlgorithm.replace,
+                );
+                print('Usuário $userId inserido com sucesso.');
+              } else {
+                // Usuário existe, verificar se precisa atualizar
+                bool needsUpdate = false;
+                if (existingUser['id_unidade'] != userData['id_unidade']) {
+                  needsUpdate = true;
+                  print('Unidade do usuário $userId alterada: ${existingUser['id_unidade']} -> ${userData['id_unidade']}');
+                }
+                if (existingUser['id_perfil'] != userData['id_perfil']) {
+                  needsUpdate = true;
+                  print('Perfil do usuário $userId alterado: ${existingUser['id_perfil']} -> ${userData['id_perfil']}');
+                }
+                if (existingUser['nom_usuario'] != userData['nom_usuario']) {
+                  needsUpdate = true;
+                  print('Nome do usuário $userId alterado: ${existingUser['nom_usuario']} -> ${userData['nom_usuario']}');
+                }
+                if (existingUser['dsc_email'] != userData['dsc_email']) {
+                  needsUpdate = true;
+                  print('Email do usuário $userId alterado: ${existingUser['dsc_email']} -> ${userData['dsc_email']}');
+                }
+
+                if (needsUpdate) {
+                  await db.update(
+                    'users',
+                    userData,
+                    where: 'id_usuario = ?',
+                    whereArgs: [userId],
+                  );
+                  print('Usuário $userId atualizado com sucesso.');
+                }
+              }
+
+              // Remover o usuário processado da lista de IDs locais
+              localUserIds.remove(userId);
             }
+
+            // Excluir usuários locais que não estão no servidor (foram inativados)
+            if (localUserIds.isNotEmpty) {
+              for (var userId in localUserIds) {
+                await db.delete(
+                  'users',
+                  where: 'id_usuario = ?',
+                  whereArgs: [userId],
+                );
+                print('Usuário $userId removido do banco local (inativado no servidor).');
+              }
+            }
+
             print('Usuários sincronizados com sucesso. Total de usuários: ${filteredUsers.length}');
+          } else if (response.statusCode == 401) {
+            print('Não autorizado. Tentando obter um novo token...');
+            final tokenObtained = await _obtainToken();
+            if (tokenObtained) {
+              final retryResponse = await http.get(
+                Uri.parse('$baseUrl/api/users'),
+                headers: _getHeaders(),
+              ).timeout(const Duration(seconds: 30));
+              if (retryResponse.statusCode == 200) {
+                final List<dynamic> users = jsonDecode(retryResponse.body);
+                final filteredUsers = users.where((user) => user['id_usuario'] != 1).toList();
+
+                // Obter todos os usuários locais (exceto o administrador)
+                final localUsers = await db.query('users', where: 'id_usuario != ?', whereArgs: [1]);
+                final localUserIds = localUsers.map((user) => user['id_usuario'] as int).toSet();
+
+                // Processar usuários do servidor (inserir ou atualizar)
+                for (var user in filteredUsers) {
+                  final userId = user['id_usuario'] as int;
+                  final existingUser = localUsers.firstWhere(
+                    (localUser) => localUser['id_usuario'] == userId,
+                    orElse: () => {},
+                  );
+
+                  final userData = {
+                    'id_usuario': userId,
+                    'nom_usuario': user['nom_usuario']?.toString() ?? '',
+                    'num_cpf': user['num_cpf']?.toString() ?? '',
+                    'dat_nascimento': user['dat_nascimento']?.toString(),
+                    'id_unidade': user['id_unidade'] as int? ?? 1,
+                    'id_perfil': user['id_perfil'] as int? ?? 2,
+                    'dsc_email': user['dsc_email']?.toString() ?? '',
+                    'pws_senha': user['pws_senha']?.toString() ?? '',
+                    'dhs_cadastro': user['dhs_cadastro']?.toString(),
+                  };
+
+                  if (existingUser.isEmpty) {
+                    // Usuário não existe localmente, inserir
+                    await db.insert(
+                      'users',
+                      userData,
+                      conflictAlgorithm: ConflictAlgorithm.replace,
+                    );
+                    print('Usuário $userId inserido com sucesso.');
+                  } else {
+                    // Usuário existe, verificar se precisa atualizar
+                    bool needsUpdate = false;
+                    if (existingUser['id_unidade'] != userData['id_unidade']) {
+                      needsUpdate = true;
+                      print('Unidade do usuário $userId alterada: ${existingUser['id_unidade']} -> ${userData['id_unidade']}');
+                    }
+                    if (existingUser['id_perfil'] != userData['id_perfil']) {
+                      needsUpdate = true;
+                      print('Perfil do usuário $userId alterado: ${existingUser['id_perfil']} -> ${userData['id_perfil']}');
+                    }
+                    if (existingUser['nom_usuario'] != userData['nom_usuario']) {
+                      needsUpdate = true;
+                      print('Nome do usuário $userId alterado: ${existingUser['nom_usuario']} -> ${userData['nom_usuario']}');
+                    }
+                    if (existingUser['dsc_email'] != userData['dsc_email']) {
+                      needsUpdate = true;
+                      print('Email do usuário $userId alterado: ${existingUser['dsc_email']} -> ${userData['dsc_email']}');
+                    }
+
+                    if (needsUpdate) {
+                      await db.update(
+                        'users',
+                        userData,
+                        where: 'id_usuario = ?',
+                        whereArgs: [userId],
+                      );
+                      print('Usuário $userId atualizado com sucesso.');
+                    }
+                  }
+
+                  // Remover o usuário processado da lista de IDs locais
+                  localUserIds.remove(userId);
+                }
+
+                // Excluir usuários locais que não estão no servidor (foram inativados)
+                if (localUserIds.isNotEmpty) {
+                  for (var userId in localUserIds) {
+                    await db.delete(
+                      'users',
+                      where: 'id_usuario = ?',
+                      whereArgs: [userId],
+                    );
+                    print('Usuário $userId removido do banco local (inativado no servidor).');
+                  }
+                }
+
+                print('Usuários sincronizados com sucesso após nova tentativa. Total de usuários: ${filteredUsers.length}');
+              } else {
+                print('Erro ao sincronizar usuários após nova tentativa: ${retryResponse.statusCode} - ${retryResponse.body}');
+              }
+            } else {
+              print('Falha ao obter o novo token. Sincronização de usuários adiada.');
+            }
           } else {
             print('Erro ao sincronizar usuários: ${response.statusCode} - ${response.body}');
           }
@@ -155,11 +382,10 @@ class SyncHelper {
           print('Falha ao sincronizar usuários: $e. Continuando com dados locais...');
         }
 
-        // Sincronizar Unidades
         try {
           final response = await http.get(
             Uri.parse('$baseUrl/api/unidades'),
-            headers: {'Content-Type': 'application/json'},
+            headers: _getHeaders(),
           ).timeout(const Duration(seconds: 30));
           if (response.statusCode == 200) {
             final List<dynamic> unidades = jsonDecode(response.body);
@@ -182,7 +408,6 @@ class SyncHelper {
           print('Falha ao sincronizar unidades: $e. Continuando com dados locais...');
         }
 
-        // Atualizar o timestamp de sincronização completa
         final now = DateTime.now().toIso8601String();
         await prefs.setString('last_full_sync', now);
         print('Sincronização completa realizada em $now.');
@@ -190,7 +415,6 @@ class SyncHelper {
         print('Sincronização completa já realizada em $lastFullSync. Pulando sincronização de dados estáticos.');
       }
 
-      // Sincronizar dados pendentes (entradas, resíduos, fotos, saídas)
       await sincronizarEntradasPendentes();
       await sincronizarSaidasPendentes();
     } catch (e) {
@@ -214,9 +438,18 @@ class SyncHelper {
         return;
       }
 
+      await _initializeToken();
+      if (_token == null) {
+        print('Token não encontrado. Tentando obter um novo token...');
+        final tokenObtained = await _obtainToken();
+        if (!tokenObtained) {
+          print('Falha ao obter o token. Sincronização de entradas adiada.');
+          return;
+        }
+      }
+
       final db = await DatabaseHelper.instance.database;
 
-      // Sincronizar Entradas
       final entradasPendentes = await db.query(
         'entradas_offline',
         where: 'sincronizado = ?',
@@ -243,7 +476,7 @@ class SyncHelper {
         print('Enviando requisição para o servidor: ${jsonEncode(requestBody)}');
         final response = await http.post(
           Uri.parse('$baseUrl/api/entradas/sincronizar'),
-          headers: {'Content-Type': 'application/json'},
+          headers: _getHeaders(),
           body: jsonEncode(requestBody),
         ).timeout(const Duration(seconds: 30));
 
@@ -263,12 +496,39 @@ class SyncHelper {
           } else {
             print('Erro: API não retornou id_entrada na resposta: ${response.body}');
           }
+        } else if (response.statusCode == 401) {
+          print('Não autorizado. Tentando obter um novo token...');
+          final tokenObtained = await _obtainToken();
+          if (tokenObtained) {
+            // Tentar novamente com o novo token
+            final retryResponse = await http.post(
+              Uri.parse('$baseUrl/api/entradas/sincronizar'),
+              headers: _getHeaders(),
+              body: jsonEncode(requestBody),
+            ).timeout(const Duration(seconds: 30));
+            if (retryResponse.statusCode == 200 || retryResponse.statusCode == 201) {
+              final retryData = jsonDecode(retryResponse.body);
+              final idEntradaServidor = retryData['id_entrada'] as int?;
+              if (idEntradaServidor != null) {
+                await db.update(
+                  'entradas_offline',
+                  {'sincronizado': 1, 'id_entrada_servidor': idEntradaServidor},
+                  where: 'id_entrada = ?',
+                  whereArgs: [idEntradaLocal],
+                );
+                print('Entrada $idEntradaLocal sincronizada com ID servidor: $idEntradaServidor');
+              }
+            } else {
+              print('Erro ao sincronizar entrada $idEntradaLocal após nova tentativa: ${retryResponse.statusCode} - ${retryResponse.body}');
+            }
+          } else {
+            print('Falha ao obter o novo token. Sincronização de entradas adiada.');
+          }
         } else {
           print('Erro ao sincronizar entrada $idEntradaLocal: ${response.statusCode} - ${response.body}');
         }
       }
 
-      // Sincronizar ResiduoEntrada
       final residuosPendentes = await db.query(
         'residuo_entrada_offline',
         where: 'sincronizado = ?',
@@ -288,16 +548,17 @@ class SyncHelper {
         }
 
         final idEntradaServidor = entrada.first['id_entrada_servidor'] as int;
+        final requestBody = {
+          'residuo_entradas': [{
+            'id_entrada': idEntradaServidor,
+            'id_residuo': residuo['id_residuo'],
+            'dhs_cadastro': residuo['dhs_cadastro'],
+          }]
+        };
         final response = await http.post(
           Uri.parse('$baseUrl/api/residuo-entrada/sincronizar'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'residuo_entradas': [{
-              'id_entrada': idEntradaServidor,
-              'id_residuo': residuo['id_residuo'],
-              'dhs_cadastro': residuo['dhs_cadastro'],
-            }]
-          }),
+          headers: _getHeaders(),
+          body: jsonEncode(requestBody),
         ).timeout(const Duration(seconds: 30));
 
         print('Status Code (Resíduo): ${response.statusCode}');
@@ -316,17 +577,45 @@ class SyncHelper {
           } else {
             print('Erro: API não retornou id_residuo_entrada na resposta: ${response.body}');
           }
+        } else if (response.statusCode == 401) {
+          print('Não autorizado. Tentando obter um novo token...');
+          final tokenObtained = await _obtainToken();
+          if (tokenObtained) {
+            final retryResponse = await http.post(
+              Uri.parse('$baseUrl/api/residuo-entrada/sincronizar'),
+              headers: _getHeaders(),
+              body: jsonEncode(requestBody),
+            ).timeout(const Duration(seconds: 30));
+            if (retryResponse.statusCode == 200 || retryResponse.statusCode == 201) {
+              final retryData = jsonDecode(retryResponse.body);
+              final idResiduoEntradaServidor = retryData['id_residuo_entrada'] as int?;
+              if (idResiduoEntradaServidor != null) {
+                await db.update(
+                  'residuo_entrada_offline',
+                  {'sincronizado': 1, 'id_residuo_entrada_servidor': idResiduoEntradaServidor},
+                  where: 'id_residuo_entrada = ?',
+                  whereArgs: [residuo['id_residuo_entrada']],
+                );
+                print('Resíduo sincronizado com ID servidor: $idResiduoEntradaServidor');
+              }
+            } else {
+              print('Erro ao sincronizar resíduo após nova tentativa: ${retryResponse.statusCode} - ${retryResponse.body}');
+            }
+          } else {
+            print('Falha ao obter o novo token. Sincronização de resíduos adiada.');
+          }
         } else {
           print('Erro ao sincronizar resíduo: ${response.statusCode} - ${response.body}');
         }
       }
 
-      // Sincronizar Fotos
       Future<http.MultipartRequest> createMultipartRequest(String filePath, String fileName, int idEntradaServidor, String dhsCadastro) async {
         var request = http.MultipartRequest(
           'POST',
           Uri.parse('$baseUrl/api/fotos/sincronizar'),
         );
+
+        request.headers.addAll(_getHeaders(isMultipart: true));
 
         request.files.add(await http.MultipartFile.fromPath(
           'file',
@@ -348,7 +637,18 @@ class SyncHelper {
           try {
             print('Tentativa $attempt de $retries para enviar a requisição');
             var request = await createMultipartRequest(filePath, fileName, idEntradaServidor, dhsCadastro);
-            return await request.send().timeout(Duration(seconds: 120));
+            var response = await request.send().timeout(Duration(seconds: 120));
+            if (response.statusCode == 401) {
+              print('Não autorizado. Tentando obter um novo token...');
+              final tokenObtained = await _obtainToken();
+              if (tokenObtained) {
+                request = await createMultipartRequest(filePath, fileName, idEntradaServidor, dhsCadastro);
+                response = await request.send().timeout(Duration(seconds: 120));
+              } else {
+                throw Exception('Falha ao obter o novo token.');
+              }
+            }
+            return response;
           } catch (e) {
             if (attempt == retries) rethrow;
             print('Erro na tentativa $attempt: $e. Tentando novamente em ${delay.inSeconds} segundos...');
@@ -466,9 +766,18 @@ class SyncHelper {
         return;
       }
 
+      await _initializeToken();
+      if (_token == null) {
+        print('Token não encontrado. Tentando obter um novo token...');
+        final tokenObtained = await _obtainToken();
+        if (!tokenObtained) {
+          print('Falha ao obter o token. Sincronização de saídas adiada.');
+          return;
+        }
+      }
+
       final db = await DatabaseHelper.instance.database;
 
-      // Sincronizar Saídas Pendentes
       final saidasPendentes = await db.query(
         'saidas_offline',
         where: 'sincronizado = ?',
@@ -486,7 +795,6 @@ class SyncHelper {
         final sitSaida = saida['sit_saida'] as int?;
         print('Sincronizando saída $idSaidaLocal (id_saida_servidor: $idSaidaServidor, sit_saida: $sitSaida)');
 
-        // Usar POST em ambos os casos
         final isUpdate = idSaidaServidor != null && sitSaida == 2;
         print('Operação: ${isUpdate ? 'Atualização (POST)' : 'Criação (POST)'}');
 
@@ -497,14 +805,10 @@ class SyncHelper {
               : '$baseUrl/api/saidas/sincronizar'),
         );
 
-        // Adicionar cabeçalhos
-        request.headers['Content-Type'] = 'multipart/form-data';
-        request.headers['Accept'] = 'application/json';
+        request.headers.addAll(_getHeaders(isMultipart: true));
 
-        // Lista para rastrear arquivos temporários
         List<String> tempFilePaths = [];
 
-        // Função para redimensionar e adicionar foto à requisição
         Future<void> addPhotoToRequest(String? photoPath, String fieldName) async {
           if (photoPath != null && File(photoPath).existsSync()) {
             final originalFile = File(photoPath);
@@ -534,9 +838,7 @@ class SyncHelper {
           }
         }
 
-        // Adicionar dados da saída
         if (!isUpdate) {
-          // Criação
           request.fields.addAll({
             'saida[id_empresa_saida]': saida['id_empresa_saida'].toString(),
             'saida[id_unidade]': saida['id_unidade'].toString(),
@@ -546,7 +848,6 @@ class SyncHelper {
           });
           await addPhotoToRequest(saida['foto_inicial'] as String?, 'foto_inicial');
         } else {
-          // Atualização
           request.fields.addAll({
             'saida[sit_saida]': saida['sit_saida'].toString(),
             'saida[sit_limpeza]': saida['sit_limpeza'] as String? ?? '',
@@ -555,7 +856,6 @@ class SyncHelper {
           await addPhotoToRequest(saida['foto_final'] as String?, 'foto_final');
         }
 
-        // Enviar a requisição
         print('Enviando requisição para o servidor (POST)...');
         print('URL: ${request.url}');
         print('Método: ${request.method}');
@@ -564,7 +864,6 @@ class SyncHelper {
         final response = await request.send().timeout(const Duration(seconds: 120));
         final responseBody = await response.stream.bytesToString();
 
-        // Deletar arquivos temporários
         for (var tempFilePath in tempFilePaths) {
           final tempFile = File(tempFilePath);
           if (tempFile.existsSync()) {
@@ -593,6 +892,57 @@ class SyncHelper {
           } else {
             print('Erro: API não retornou id_saida na resposta: $responseBody');
           }
+        } else if (response.statusCode == 401) {
+          print('Não autorizado. Tentando obter um novo token...');
+          final tokenObtained = await _obtainToken();
+          if (tokenObtained) {
+            request = http.MultipartRequest(
+              'POST',
+              Uri.parse(isUpdate
+                  ? '$baseUrl/api/saidas/sincronizar/$idSaidaServidor'
+                  : '$baseUrl/api/saidas/sincronizar'),
+            );
+            request.headers.addAll(_getHeaders(isMultipart: true));
+            if (!isUpdate) {
+              request.fields.addAll({
+                'saida[id_empresa_saida]': saida['id_empresa_saida'].toString(),
+                'saida[id_unidade]': saida['id_unidade'].toString(),
+                'saida[sit_saida]': saida['sit_saida'].toString(),
+                'saida[id_usuario]': saida['id_usuario'].toString(),
+                'saida[dhs_cadastro]': saida['dhs_cadastro'] as String,
+              });
+              await addPhotoToRequest(saida['foto_inicial'] as String?, 'foto_inicial');
+            } else {
+              request.fields.addAll({
+                'saida[sit_saida]': saida['sit_saida'].toString(),
+                'saida[sit_limpeza]': saida['sit_limpeza'] as String? ?? '',
+                'saida[dhs_atualizacao]': saida['dhs_atualizacao'] as String? ?? DateTime.now().toIso8601String(),
+              });
+              await addPhotoToRequest(saida['foto_final'] as String?, 'foto_final');
+            }
+            final retryResponse = await request.send().timeout(const Duration(seconds: 120));
+            final retryResponseBody = await retryResponse.stream.bytesToString();
+            if (retryResponse.statusCode == 200 || retryResponse.statusCode == 201) {
+              final retryData = jsonDecode(retryResponseBody);
+              final idSaidaServidorResponse = retryData['id_saida'] as int?;
+              if (idSaidaServidorResponse != null) {
+                await db.update(
+                  'saidas_offline',
+                  {
+                    'sincronizado': 1,
+                    if (!isUpdate) 'id_saida_servidor': idSaidaServidorResponse,
+                  },
+                  where: 'id_saida = ?',
+                  whereArgs: [idSaidaLocal],
+                );
+                print('Saída $idSaidaLocal ${isUpdate ? 'atualizada' : 'criada'} com sucesso (ID servidor: $idSaidaServidorResponse)');
+              }
+            } else {
+              print('Erro ao sincronizar saída $idSaidaLocal após nova tentativa: ${retryResponse.statusCode} - $retryResponseBody');
+            }
+          } else {
+            print('Falha ao obter o novo token. Sincronização de saídas adiada.');
+          }
         } else {
           print('Erro ao sincronizar saída $idSaidaLocal: ${response.statusCode} - $responseBody');
         }
@@ -608,7 +958,10 @@ class SyncHelper {
   static Future<void> _sincronizarRA() async {
     try {
       print('Tentando sincronizar RAs... URL: $baseUrl/api/regioes-administrativas');
-      final response = await http.get(Uri.parse('$baseUrl/api/regioes-administrativas')).timeout(const Duration(seconds: 30));
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/regioes-administrativas'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 30));
       print('Resposta recebida. Status: ${response.statusCode}, Body: ${response.body}');
       if (response.statusCode == 200) {
         final db = await DatabaseHelper.instance.database;
@@ -623,19 +976,49 @@ class SyncHelper {
           });
         }
         print('RAs sincronizadas com sucesso. Total de RAs: ${novasRegioes.length}');
+      } else if (response.statusCode == 401) {
+        print('Não autorizado. Tentando obter um novo token...');
+        final tokenObtained = await _obtainToken();
+        if (tokenObtained) {
+          final retryResponse = await http.get(
+            Uri.parse('$baseUrl/api/regioes-administrativas'),
+            headers: _getHeaders(),
+          ).timeout(const Duration(seconds: 30));
+          if (retryResponse.statusCode == 200) {
+            final db = await DatabaseHelper.instance.database;
+            final novasRegioes = List<Map<String, dynamic>>.from(jsonDecode(retryResponse.body));
+            await db.delete('ra_offline');
+            for (var regiao in novasRegioes) {
+              await db.insert('ra_offline', {
+                'id_ra': regiao['id_ra'],
+                'numero_ra': regiao['numero_ra'],
+                'nome_ra': regiao['nome_ra'],
+                'dhs_cadastro': regiao['dhs_cadastro'],
+              });
+            }
+            print('RAs sincronizadas com sucesso após nova tentativa. Total de RAs: ${novasRegioes.length}');
+          } else {
+            print('Erro ao sincronizar RAs após nova tentativa: ${retryResponse.statusCode} - ${retryResponse.body}');
+          }
+        } else {
+          print('Falha ao obter o novo token. Sincronização de RAs adiada.');
+        }
       } else {
         print('Erro ao sincronizar RAs: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('Erro ao sincronizar RAs: $e');
-      rethrow; // Propaga o erro para ser tratado no método chamador
+      rethrow;
     }
   }
 
   static Future<void> _sincronizarTiposResiduo() async {
     try {
       print('Tentando sincronizar Tipos de Resíduos... URL: $baseUrl/api/tipos-residuo');
-      final response = await http.get(Uri.parse('$baseUrl/api/tipos-residuo')).timeout(const Duration(seconds: 30));
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/tipos-residuo'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 30));
       print('Resposta recebida. Status: ${response.statusCode}, Body: ${response.body}');
       if (response.statusCode == 200) {
         final db = await DatabaseHelper.instance.database;
@@ -650,6 +1033,33 @@ class SyncHelper {
           });
         }
         print('Tipos de resíduos sincronizados com sucesso. Total de tipos: ${novosTipos.length}');
+      } else if (response.statusCode == 401) {
+        print('Não autorizado. Tentando obter um novo token...');
+        final tokenObtained = await _obtainToken();
+        if (tokenObtained) {
+          final retryResponse = await http.get(
+            Uri.parse('$baseUrl/api/tipos-residuo'),
+            headers: _getHeaders(),
+          ).timeout(const Duration(seconds: 30));
+          if (retryResponse.statusCode == 200) {
+            final db = await DatabaseHelper.instance.database;
+            final novosTipos = List<Map<String, dynamic>>.from(jsonDecode(retryResponse.body));
+            await db.delete('tipos_residuo_offline');
+            for (var tipo in novosTipos) {
+              await db.insert('tipos_residuo_offline', {
+                'id_residuo': tipo['id_residuo'],
+                'nome_residuo': tipo['nome_residuo'],
+                'dsc_residuo': tipo['dsc_residuo'],
+                'dhs_cadastro': tipo['dhs_cadastro'],
+              });
+            }
+            print('Tipos de resíduos sincronizados com sucesso após nova tentativa. Total de tipos: ${novosTipos.length}');
+          } else {
+            print('Erro ao sincronizar tipos de resíduos após nova tentativa: ${retryResponse.statusCode} - ${retryResponse.body}');
+          }
+        } else {
+          print('Falha ao obter o novo token. Sincronização de tipos de resíduos adiada.');
+        }
       } else {
         print('Erro ao sincronizar tipos de resíduos: ${response.statusCode} - ${response.body}');
       }

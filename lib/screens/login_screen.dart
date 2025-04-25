@@ -33,8 +33,28 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       // Carregar empresas do banco local antes de tentar sincronizar
       await _carregarEmpresasLocais();
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Falha ao carregar dados iniciais: $e. Verifique sua conexão e tente novamente.';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
-      // Sincronizar todos os dados apenas na primeira inicialização ou se a tabela de empresas estiver vazia
+  Future<void> _carregarEmpresasLocais() async {
+    final db = await DatabaseHelper.instance.database;
+    final empresas = await db.query('empresas_saida_offline');
+    setState(() {
+      _empresasSaidas = empresas;
+    });
+    print('Empresas carregadas do banco local: $_empresasSaidas');
+  }
+
+  Future<void> _sincronizarDadosIniciais() async {
+    try {
       final prefs = await SharedPreferences.getInstance();
       final lastSync = prefs.getString('last_full_sync') ?? '';
       final db = await DatabaseHelper.instance.database;
@@ -64,20 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _errorMessage = 'Falha ao sincronizar dados iniciais: $e. Verifique sua conexão e tente novamente.';
       });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
     }
-  }
-
-  Future<void> _carregarEmpresasLocais() async {
-    final db = await DatabaseHelper.instance.database;
-    final empresas = await db.query('empresas_saida_offline');
-    setState(() {
-      _empresasSaidas = empresas;
-    });
-    print('Empresas carregadas do banco local: $_empresasSaidas');
   }
 
   Future<void> _login() async {
@@ -98,6 +105,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     try {
+      // Verificação local (mantida para login offline)
       final db = await DatabaseHelper.instance.database;
       final result = await db.query(
         'users',
@@ -129,10 +137,17 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
+      // Salvar as credenciais para uso na sincronização
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_email', email);
+      await prefs.setString('user_password', password); // Armazenar a senha de forma segura será abordado abaixo
+
       await prefs.setInt('id_usuario', user['id_usuario'] as int);
       await prefs.setInt('id_unidade', user['id_unidade'] as int);
       await prefs.setInt('id_perfil', user['id_perfil'] as int);
+
+      // Após o login local, realizar a sincronização inicial (se houver conexão)
+      await _sincronizarDadosIniciais();
 
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
@@ -164,7 +179,6 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo do SLU
               Padding(
                 padding: const EdgeInsets.only(bottom: 24.0),
                 child: Image.asset(

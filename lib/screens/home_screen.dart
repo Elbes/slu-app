@@ -84,50 +84,51 @@ class HomeScreen extends StatelessWidget {
       appBar: CustomAppBar(
         showLogoutButton: true,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: GridView.count(
-          crossAxisCount: 2,
-          crossAxisSpacing: 16.0,
-          mainAxisSpacing: 16.0,
-          childAspectRatio: 1.0,
-          children: [
-            _buildButton(
-              context: context,
-              iconPath: 'assets/entrada_logo.png',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const EntradaScreen()),
-                );
-              },
-            ),
-            _buildButton(
-              context: context,
-              iconPath: 'assets/saida_logo.png',
-              onTap: () async {
-                final saidaPendente = await _verificarSaidaIniciada();
-                if (saidaPendente != null) {
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0), // Reduzido o padding vertical
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center, // Centraliza verticalmente
+            crossAxisAlignment: CrossAxisAlignment.center, // Centraliza horizontalmente
+            children: [
+              _buildButton(
+                context: context,
+                iconPath: 'assets/entrada_logo.png',
+                onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (context) => SaidaIntermediariaScreen(
-                        idSaida: saidaPendente['idSaida'],
-                        data: saidaPendente['data'],
-                        hora: saidaPendente['hora'],
-                        empresa: saidaPendente['empresa'],
+                    MaterialPageRoute(builder: (context) => const EntradaScreen()),
+                  );
+                },
+              ),
+              const SizedBox(height: 16.0), // Reduzido o espaço entre os botões
+              _buildButton(
+                context: context,
+                iconPath: 'assets/saida_logo.png',
+                onTap: () async {
+                  final saidaPendente = await _verificarSaidaIniciada();
+                  if (saidaPendente != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SaidaIntermediariaScreen(
+                          idSaida: saidaPendente['idSaida'],
+                          data: saidaPendente['data'],
+                          hora: saidaPendente['hora'],
+                          empresa: saidaPendente['empresa'],
+                        ),
                       ),
-                    ),
-                  );
-                } else {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const SaidasScreen()),
-                  );
-                }
-              },
-            ),
-          ],
+                    );
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SaidasScreen()),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -138,18 +139,34 @@ class HomeScreen extends StatelessWidget {
     required String iconPath,
     required VoidCallback onTap,
   }) {
-    final double buttonWidth = MediaQuery.of(context).size.width * 0.4;
+    final double buttonWidth = MediaQuery.of(context).size.width * 0.8; // 80% da largura da tela
+    final double buttonHeight = buttonWidth * 0.25; // Ajustada a proporção para evitar overflow
 
-    return Center(
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          width: buttonWidth,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12.0),
+      child: Container(
+        width: buttonWidth,
+        height: buttonHeight,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.0),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.3),
+              spreadRadius: 2,
+              blurRadius: 5,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12.0),
           child: Image.asset(
             iconPath,
             width: buttonWidth,
-            fit: BoxFit.contain,
+            height: buttonHeight,
+            fit: BoxFit.fill, // Preenche todo o espaço do botão
           ),
         ),
       ),

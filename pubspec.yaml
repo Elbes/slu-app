@@ -66,6 +66,7 @@ flutter:
     - assets/slu_logo.png
     - assets/entrada_logo.png
     - assets/saida_logo.png
+    - assets/icons/  # Declaração da pasta de assets para incluir app_icon.png
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
