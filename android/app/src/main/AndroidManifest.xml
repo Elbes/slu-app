@@ -1,9 +1,10 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.entradas_pev_app">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" >
 
     <!-- Permissão para câmera -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Permissões para acessar mídia no Android 13+ -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Para compatibilidade com Android 12 ou inferior -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -16,7 +17,8 @@
     <application
         android:label="PEVS SLU/DF"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

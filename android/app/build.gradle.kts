@@ -1,20 +1,30 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Carrega as propriedades de assinatura do arquivo key.properties
+val keystoreProperties = Properties().apply {
+    val keystorePropertiesFile = rootProject.file("key.properties")
+    if (keystorePropertiesFile.exists()) {
+        load(keystorePropertiesFile.inputStream())
+    }
+}
+
 android {
-    namespace = "com.example.entradas_pev_app"
+    namespace = "slu.pev.entradas_pev_app"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973" // Atualizado conforme sugerido pelo Flutter
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
-        applicationId = "com.example.entradas_pev_app"
+        applicationId = "slu.pev.entradas_pev_app"
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        minSdkVersion(23) // Definido para suportar Android 14
-        targetSdkVersion(34) // Android 14
+        minSdk = 23
+        targetSdk = 34
     }
 
     compileOptions {
@@ -26,44 +36,36 @@ android {
         jvmTarget = "11"
     }
 
+    // Configuração de assinatura para o build release
     signingConfigs {
         create("release") {
-            keyAlias = "upload"
-            keyPassword = "281016"
-            storeFile = file("C:\\Users\\elbes.admin\\upload-keystore.jks")
-            storePassword = "281016"
-            // Removido: v1SigningEnabled e v2SigningEnabled, pois são gerenciados automaticamente pelo AGP
+            keyAlias = keystoreProperties.getProperty("keyAlias")
+            keyPassword = keystoreProperties.getProperty("keyPassword")
+            storeFile = keystoreProperties.getProperty("storeFile")?.let(::file)
+            storePassword = keystoreProperties.getProperty("storePassword")
         }
     }
 
     buildTypes {
-        create("pevs-slu") {
+        release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                file("proguard-rules.pro")
+                "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
-        }
-        getByName("release") {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                file("proguard-rules.pro")
-            )
-            signingConfig = signingConfigs.getByName("release")
+            // Garante que os símbolos nativos sejam incluídos no AAB
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
         }
     }
 
     buildFeatures {
-        // Se necessário habilitar viewBinding, compose etc.
+        // Descomente se precisar de viewBinding ou compose
         // viewBinding = true
     }
-
-    // Define o nome base para os arquivos APK gerados
-    setProperty("archivesBaseName", "PEV-SLUDF-${defaultConfig.versionName}")
 }
 
 flutter {
